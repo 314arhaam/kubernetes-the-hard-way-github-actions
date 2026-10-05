@@ -11,6 +11,20 @@ The implementation is based on:
 - [Kubernetes The Hard Way](https://github.com/kelseyhightower/kubernetes-the-hard-way)
 - [Testing data platforms by getting more out of GitHub Actions](https://medium.com/data-engineer-things/testing-data-platforms-by-getting-more-out-of-github-actions-bacb32699b6a)
 
+## Results
+
+### Workflow
+
+![workflow](assets/k8s-workflow.png)
+
+### Kubelet service status
+
+![kubelet-service](assets/k8s-kubelet-and-get-nodes.png)
+
+### Nginx pod log
+
+![](assets/k8s-nginx-pod-logs-port-forward.png)
+
 ## Architecture
 
 The workflow creates separate GitHub-hosted runners for the Kubernetes machines:
