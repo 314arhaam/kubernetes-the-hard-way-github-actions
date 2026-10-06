@@ -13,6 +13,11 @@ on:
         required: true
         default: "2"
         type: number
+      keep:
+        description: "Keep cluster alive"
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   prepare-matrix:
@@ -365,6 +370,29 @@ jobs:
       run: |
         POD_NAME=$(sudo kubectl get pods -l app=nginx -o jsonpath="{.items[0].metadata.name}")
         sudo kubectl logs $POD_NAME
+        - name: Install the Redis client
+    - name: Install redis cli
+      if: ${{ inputs.keep }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes redis-tools
+    - name: Register resource and wait for verification
+      if: ${{ inputs.keep }}
+      shell: bash
+      run: |
+        hostname=${{ matrix.node.name }}
+        redis_host="redis-server-ts"
+
+        until [ "$(redis-cli -h "$redis_host" ping 2>/dev/null || true)" = PONG ]; do
+          sleep 2
+        done
+
+        redis-cli -h "$redis_host" redis-cli SET jumpbox ready
+
+        while [ "$(redis-cli -h "$redis_host" GET redis-service)" = "ready" ]; do
+          echo "jumpbox available: $(date)"
+          sleep 2
+        done
 
   clean-up:
     runs-on: ubuntu-22.04
