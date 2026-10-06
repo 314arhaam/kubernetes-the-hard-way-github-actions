@@ -90,15 +90,26 @@ jobs:
             sleep 2
           done
   
-  server:
+  servers:
+    name: ${{ matrix.node_name }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node_name: server
+    
     runs-on: ubuntu-22.04
     needs: check-redis-service
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
-        node-name: ${{ github.job }}
+        node-name: ${{ matrix.node_name }}
         ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     - name: Install the Redis client
@@ -108,7 +119,7 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEY=${{ github.job }}
+        KEY=${{ matrix.node_name }}"
         redis_host="redis-server-ts"
 
         until [ -n "$redis_host" ]; do
@@ -122,15 +133,27 @@ jobs:
           echo "having resource: $KEY - $(date)"
         done
   
-  node-0:
+  workers:
+    name: ${{ matrix.node_name }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node_name: node-0
+          - node_name: node-1
+    
     runs-on: ubuntu-22.04
     needs: check-redis-service
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
-        node-name: ${{ github.job }}
+        node-name: ${{ matrix.node_name }}"
         ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     - name: Install the Redis client
@@ -140,39 +163,7 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEY=${{ github.job }}
-        redis_host="redis-server-ts"
-
-        until [ -n "$redis_host" ]; do
-          redis_host="$(tailscale status --json | jq -r '.Peer[] | select(.HostName == "redis-server-ts") | .TailscaleIPs[0]' | head -n1)"
-          [ -n "$redis_host" ] || sleep 2
-        done
-
-        redis-cli -h "$redis_host" SET $KEY "$(tailscale ip -4)"
-
-        while [ -n "$(redis-cli -h "$redis_host" GET $KEY)" ]; do
-          echo "having resource: $KEY - $(date)"
-        done
-  
-  node-1:
-    runs-on: ubuntu-22.04
-    needs: check-redis-service
-    steps:
-    - uses: actions/checkout@v5
-    - name: Setup node
-      uses: ./.github/actions/setup-node-with-tailscale
-      with:
-        node-name: ${{ github.job }}
-        ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-        ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-    - name: Install the Redis client
-      run: |
-        sudo apt-get update
-        sudo apt-get install --yes redis-tools
-    - name: Register resource and wait for verification
-      shell: bash
-      run: |
-        KEY=${{ github.job }}
+        KEY=${{ matrix.node_name }}"
         redis_host="redis-server-ts"
 
         until [ -n "$redis_host" ]; do
@@ -190,7 +181,10 @@ jobs:
     runs-on: ubuntu-22.04
     needs: check-redis-service
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
@@ -220,7 +214,10 @@ jobs:
     runs-on: ubuntu-22.04
     needs: check-kubernetes-resources
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
@@ -340,7 +337,10 @@ jobs:
     runs-on: ubuntu-22.04
     needs: jumpbox
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.branch }}
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
