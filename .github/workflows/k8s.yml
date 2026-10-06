@@ -387,7 +387,7 @@ jobs:
 
         redis-cli -h "$redis_host" SET jumpbox ready
 
-        while [ "$(redis-cli -h "$redis_host" GET redis-service)" = "ready" ]; do
+        while [ "$(redis-cli -h "$redis_host" GET jumpbox)" = "ready" ]; do
           echo "jumpbox available: $(date)"
           sleep 2
         done
