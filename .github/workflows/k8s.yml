@@ -3,6 +3,16 @@ name: Provision k8s - The hard way
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: "Branch to provision"
+        required: true
+        default: "main"
+        type: string
+      masters:
+        description: "Number of control-plane nodes"
+        required: true
+        default: "1"
+        type: number
       workers:
         description: "Number of worker nodes"
         required: true
@@ -14,21 +24,28 @@ jobs:
     runs-on: ubuntu-22.04
 
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      servers: ${{ steps.set-matrix.outputs.servers }}
+      workers: ${{ steps.set-matrix.outputs.workers }}
 
     steps:
       - id: set-matrix
         shell: bash
         run: |
-          count=${{ inputs.workers }}
-          matrix=$(python3 -c "import json; count = int('$count'); print(json.dumps([{'name': f'node-{i}'} for i in range(count)]));")
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "$matrix"
+          set -euo pipefail
+          master_count=${{ inputs.masters }}
+          worker_count=${{ inputs.workers }}
+          [ "$master_count" -gt 0 ] && [ "$master_count" -le 256 ]
+          [ "$worker_count" -gt 0 ] && [ "$worker_count" -le 256 ]
+
+          servers=$(python3 -c "import json; print(json.dumps([{'name': f'server-{i}'} for i in range($master_count)]))")
+          workers=$(python3 -c "import json; print(json.dumps([{'name': f'node-{i}'} for i in range($worker_count)]))")
+          echo "servers=$servers" >> "$GITHUB_OUTPUT"
+          echo "workers=$workers" >> "$GITHUB_OUTPUT"
 
   redis-service:
     name: Redis lifecycle coordinator
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     services:
       redis:
@@ -111,16 +128,17 @@ jobs:
           done
   
   servers:
-    name: ${{ matrix.node_name }}
+    name: ${{ matrix.node.name }}
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - node_name: server
+        node: ${{ fromJSON(needs.prepare-matrix.outputs.servers) }}
     
     runs-on: ubuntu-22.04
-    needs: check-redis-service
+    needs:
+      - check-redis-service
+      - prepare-matrix
     steps:
     - name: Checkout
       uses: actions/checkout@v5
@@ -129,7 +147,7 @@ jobs:
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
-        node-name: ${{ matrix.node_name }}
+        node-name: ${{ matrix.node.name }}
         ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     - name: Install the Redis client
@@ -139,18 +157,18 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEY=${{ matrix.node_name }}
+        hostname=${{ matrix.node.name }}
         redis_host="redis-server-ts"
 
-        until [ -n "$redis_host" ]; do
-          redis_host="$(tailscale status --json | jq -r '.Peer[] | select(.HostName == "redis-server-ts") | .TailscaleIPs[0]' | head -n1)"
-          [ -n "$redis_host" ] || sleep 2
+        until [ "$(redis-cli -h "$redis_host" ping 2>/dev/null || true)" = PONG ]; do
+          sleep 2
         done
 
-        redis-cli -h "$redis_host" SET $KEY "$(tailscale ip -4)"
+        redis-cli -h "$redis_host" HSET masters "$hostname" "$(tailscale ip -4)"
 
-        while [ -n "$(redis-cli -h "$redis_host" GET $KEY)" ]; do
-          echo "having resource: $KEY - $(date)"
+        while [ "$(redis-cli -h "$redis_host" HEXISTS masters "$hostname")" = 1 ]; do
+          echo "control plane available: $hostname - $(date)"
+          sleep 2
         done
   
   workers:
@@ -159,7 +177,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
+        node: ${{ fromJSON(needs.prepare-matrix.outputs.workers) }}
     
     runs-on: ubuntu-22.04
     needs: 
@@ -183,18 +201,18 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEY=${{ matrix.node.name }}
+        hostname=${{ matrix.node.name }}
         redis_host="redis-server-ts"
 
-        until [ -n "$redis_host" ]; do
-          redis_host="$(tailscale status --json | jq -r '.Peer[] | select(.HostName == "redis-server-ts") | .TailscaleIPs[0]' | head -n1)"
-          [ -n "$redis_host" ] || sleep 2
+        until [ "$(redis-cli -h "$redis_host" ping 2>/dev/null || true)" = PONG ]; do
+          sleep 2
         done
 
-        redis-cli -h "$redis_host" SET $KEY "$(tailscale ip -4)"
+        redis-cli -h "$redis_host" HSET workers "$hostname" "$(tailscale ip -4)"
 
-        while [ -n "$(redis-cli -h "$redis_host" GET $KEY)" ]; do
-          echo "having resource: $KEY - $(date)"
+        while [ "$(redis-cli -h "$redis_host" HEXISTS workers "$hostname")" = 1 ]; do
+          echo "worker available: $hostname - $(date)"
+          sleep 2
         done
 
   check-kubernetes-resources:
@@ -218,17 +236,20 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEYS=("node-0" "node-1" "server")
         redis_host="redis-server-ts"
+        expected_masters=${{ inputs.masters }}
+        expected_workers=${{ inputs.workers }}
 
-        while ! printf '%s\n' "${KEYS[@]}" | while read -r KEY; do
-          [ -n "$(redis-cli -h "$redis_host" GET "$KEY")" ] || exit 1
-        done; do
-          echo "Waiting for all resources... $(date)"
+        until [ "$(redis-cli -h "$redis_host" HLEN masters)" -eq "$expected_masters" ] \
+          && [ "$(redis-cli -h "$redis_host" HLEN workers)" -eq "$expected_workers" ]; do
+          echo "Waiting for machine inventory... $(date)"
           sleep 2
         done
 
-        echo "All resources available."
+        echo "Control-plane inventory:"
+        redis-cli -h "$redis_host" HGETALL masters
+        echo "Worker inventory:"
+        redis-cli -h "$redis_host" HGETALL workers
 
   jumpbox:
     runs-on: ubuntu-22.04
@@ -253,9 +274,11 @@ jobs:
     - name: KTHW step 3
       shell: bash
       working-directory: ./scripts
+      env:
+        REDIS_HOST: redis-server-ts
       run: |
         sudo chmod +x 03-compute-resources.sh
-        sudo ./03-compute-resources.sh
+        sudo --preserve-env=REDIS_HOST ./03-compute-resources.sh
     - name: KTHW step 4
       shell: bash
       working-directory: ./scripts
@@ -304,22 +327,17 @@ jobs:
       run: |
         sudo chmod +x 11-pod-network-routes.sh
         sudo ./11-pod-network-routes.sh
-    - name: Check kubelet on node-0
+    - name: Check kubelet on workers
       shell: bash
+      working-directory: ./scripts/kubernetes-the-hard-way
       run: |
-        sudo ssh \
-          -o StrictHostKeyChecking=no \
-          -o UserKnownHostsFile=/dev/null \
-          root@node-0 \
-          "systemctl status kubelet --no-pager -l"
-    - name: Check kubelet on node-1
-      shell: bash
-      run: |
-        sudo ssh \
-          -o StrictHostKeyChecking=no \
-          -o UserKnownHostsFile=/dev/null \
-          root@node-1 \
-          "systemctl status kubelet --no-pager -l"
+        while read -r host; do
+          sudo ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "root@$host" \
+            "systemctl status kubelet --no-pager -l"
+        done < workers.txt
     - name: kubectl test
       run: |
         sleep 30
@@ -356,6 +374,7 @@ jobs:
   clean-up:
     runs-on: ubuntu-22.04
     needs: jumpbox
+    if: always()
     steps:
     - name: Checkout
       uses: actions/checkout@v5
@@ -383,10 +402,6 @@ jobs:
 
         echo "Releasing k8s cluster..."
 
-        redis-cli -h "$redis_host" DEL \
-          node-0 \
-          node-1 \
-          server \
-          redis-service
+        redis-cli -h "$redis_host" DEL workers masters redis-service
         
         echo "k8s resources removed"

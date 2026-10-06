@@ -34,17 +34,14 @@ The workflow creates separate GitHub-hosted runners for the Kubernetes machines:
                         |
         +---------------+---------------+
         |               |               |
-     jumpbox          server          workers
-                        |            /       \
-                        |        node-0     node-1
-                        |
-                   control plane
+     jumpbox          servers         workers
+                    server-0...       node-0...
 ```
 
 All machines join the same Tailscale tailnet and are addressed using predictable MagicDNS names:
 
 ```text
-server
+server-0
 node-0
 node-1
 ```
@@ -52,9 +49,8 @@ node-1
 The Kubernetes layout follows Kubernetes The Hard Way:
 
 - `jumpbox` — orchestration and administration
-- `server` — etcd and Kubernetes control plane
-- `node-0` — Kubernetes worker
-- `node-1` — Kubernetes worker
+- `server-N` — etcd and Kubernetes control-plane nodes
+- `node-N` — Kubernetes worker nodes
 
 ## How It Works
 
@@ -71,9 +67,8 @@ Each infrastructure job:
 Other jobs can then reach these machines through the Tailnet.
 
 ```bash
-ssh root@server
+ssh root@server-0
 ssh root@node-0
-ssh root@node-1
 ```
 
 This makes independent GitHub-hosted runners behave like machines on the same private network.
@@ -114,10 +109,10 @@ The workflow uses the official Tailscale GitHub Action:
     oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
     oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     tags: tag:ci
-    hostname: server
+    hostname: ${{ matrix.node.name }}
 ```
 
-The hostname changes depending on the machine being created, for example `server`, `node-0`, or `node-1`.
+The workflow matrix creates `server-N` and `node-N` Tailscale hostnames from the requested master and worker counts.
 
 ## Create the `tag:ci` Tag
 
@@ -195,9 +190,8 @@ sudo tailscale set --ssh
 Then the jumpbox can connect using MagicDNS:
 
 ```bash
-tailscale ssh root@server
+tailscale ssh root@server-0
 tailscale ssh root@node-0
-tailscale ssh root@node-1
 ```
 
 For automation, normal OpenSSH can also be used over the Tailnet:
@@ -212,18 +206,19 @@ The relaxed host-key behavior is only used because the CI runners are disposable
 
 Kubernetes The Hard Way expects a `machines.txt` file with node addresses and Pod CIDRs.
 
-In this implementation, the machine addresses are discovered dynamically from Tailscale:
+Each runner registers its Tailscale hostname and IPv4 address in one of two Redis hashes:
 
 ```bash
-SERVER_IP=$(ssh root@server "tailscale ip -4 | head -n1")
-NODE_0_IP=$(ssh root@node-0 "tailscale ip -4 | head -n1")
-NODE_1_IP=$(ssh root@node-1 "tailscale ip -4 | head -n1")
+HSET masters server-0 100.x.x.x
+HSET workers node-0 100.x.x.x
 ```
+
+The jumpbox reads those hashes and creates `servers.txt`, `workers.txt`, and `machines.txt`. The role files are then loaded by every provisioning script.
 
 A generated file looks like:
 
 ```text
-100.x.x.x server.kubernetes.local server
+100.x.x.x server-0.kubernetes.local server-0
 100.x.x.x node-0.kubernetes.local node-0 10.200.0.0/24
 100.x.x.x node-1.kubernetes.local node-1 10.200.1.0/24
 ```
@@ -234,7 +229,7 @@ The addresses are not hardcoded because the GitHub runners are ephemeral.
 
 Tailscale connects the **machines**. Kubernetes CNI handles the **Pod networks**.
 
-The workers use separate Pod CIDRs:
+Workers receive deterministic Pod CIDRs based on their sorted Redis inventory:
 
 ```text
 node-0 -> 10.200.0.0/24
@@ -290,7 +285,7 @@ After configuring Tailscale and adding the GitHub secrets:
 
 1. Open the repository's **Actions** tab.
 2. Select the Kubernetes The Hard Way workflow.
-3. Run the workflow.
+3. Choose the branch and the desired master and worker counts, then run the workflow.
 4. Follow the jobs while the temporary machines are created and configured.
 5. Inspect the final Kubernetes verification steps.
 
@@ -298,7 +293,7 @@ During a run, the Tailscale Admin Console should show temporary nodes such as:
 
 ```text
 jumpbox
-server
+server-0
 node-0
 node-1
 ```
