@@ -136,7 +136,7 @@ tailscale ssh "${SSH_USER}@${PRIMARY_SERVER}" '
     --kubeconfig /root/admin.kubeconfig
 '
 
-sleep 10
+sleep 60
 
 log "Verifying API server from jumpbox"
 for endpoint in version readyz livez; do
