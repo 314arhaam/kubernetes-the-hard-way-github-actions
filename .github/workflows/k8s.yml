@@ -3,11 +3,6 @@ name: Provision k8s - The hard way
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: "Branch to provision"
-        required: true
-        default: "main"
-        type: string
       masters:
         description: "Number of control-plane nodes"
         required: true
