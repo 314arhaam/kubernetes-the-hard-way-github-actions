@@ -136,9 +136,11 @@ tailscale ssh "${SSH_USER}@${PRIMARY_SERVER}" '
     --kubeconfig /root/admin.kubeconfig
 '
 
+sleep 10
+
 log "Verifying API server from jumpbox"
 for endpoint in version readyz livez; do
-  curl --fail --silent --show-error --cacert ca.crt \
+  curl --fail-with-body --show-error --show-error --cacert ca.crt \
     "${API_SERVER}/${endpoint}"
   echo
 done
