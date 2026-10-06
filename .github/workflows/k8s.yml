@@ -379,7 +379,6 @@ jobs:
       if: ${{ inputs.keep }}
       shell: bash
       run: |
-        hostname=${{ matrix.node.name }}
         redis_host="redis-server-ts"
 
         until [ "$(redis-cli -h "$redis_host" ping 2>/dev/null || true)" = PONG ]; do
