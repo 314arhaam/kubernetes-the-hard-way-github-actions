@@ -21,21 +21,7 @@ jobs:
         shell: bash
         run: |
           count=${{ inputs.workers }}
-
-          matrix=$(
-            python3 - <<PY
-              import json
-
-              count = int("${count}")
-
-              nodes = [
-                  {"name": f"node-{i}"}
-                  for i in range(count)
-              ]
-
-              print(json.dumps(nodes))
-              PY
-          )
+          matrix=$(python3 -c "import json; count = int('$count'); print(json.dumps([{'name': f'node-{i}'} for i in range(count)]));")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "$matrix"
 
