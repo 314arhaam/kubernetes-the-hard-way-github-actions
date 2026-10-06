@@ -2,8 +2,42 @@ name: Provision k8s - The hard way
 
 on:
   workflow_dispatch:
+    inputs:
+      workers:
+        description: "Number of worker nodes"
+        required: true
+        default: "2"
+        type: number
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-22.04
+
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - id: set-matrix
+        shell: bash
+        run: |
+          count=${{ inputs.workers }}
+
+          matrix=$(
+            python3 - <<PY
+              import json
+
+              count = int("${count}")
+
+              nodes = [
+                  {"name": f"node-{i}"}
+                  for i in range(count)
+              ]
+
+              print(json.dumps(nodes))
+              PY
+          )
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix"
 
   redis-service:
     name: Redis lifecycle coordinator
@@ -134,14 +168,13 @@ jobs:
         done
   
   workers:
-    name: ${{ matrix.node_name }}
+    needs: prepare-matrix
+    name: ${{ matrix.node.name }}
 
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - node_name: node-0
-          - node_name: node-1
+        node: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
     
     runs-on: ubuntu-22.04
     needs: check-redis-service
@@ -153,7 +186,7 @@ jobs:
     - name: Setup node
       uses: ./.github/actions/setup-node-with-tailscale
       with:
-        node-name: ${{ matrix.node_name }}
+        node-name: ${{ matrix.node.name }}
         ts-oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
         ts-oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
     - name: Install the Redis client
@@ -163,7 +196,7 @@ jobs:
     - name: Register resource and wait for verification
       shell: bash
       run: |
-        KEY=${{ matrix.node_name }}
+        KEY=${{ matrix.node.name }}
         redis_host="redis-server-ts"
 
         until [ -n "$redis_host" ]; do
