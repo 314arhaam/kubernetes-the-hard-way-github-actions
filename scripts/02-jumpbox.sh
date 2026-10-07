@@ -3,22 +3,11 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/kelseyhightower/kubernetes-the-hard-way.git"
-REPO_DIR="kubernetes-the-hard-way"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/utils.sh"
 
-log() {
-  echo
-  echo "==> $*"
-}
+require_root
 
-if [ "$(id -u)" -ne 0 ]; then
-  echo "ERROR: Run this script as root."
-  exit 1
-fi
-
-
-# ------------------------------------------------------------
 # Install required utilities
-# ------------------------------------------------------------
 
 log "Installing command-line utilities"
 
@@ -29,12 +18,10 @@ apt-get install -y \
   curl \
   vim \
   openssl \
-  git
+  git \
+  redis-tools
 
-
-# ------------------------------------------------------------
 # Clone Kubernetes The Hard Way
-# ------------------------------------------------------------
 
 log "Cloning Kubernetes The Hard Way"
 
@@ -52,10 +39,7 @@ cd "$REPO_DIR"
 echo "Working directory:"
 pwd
 
-
-# ------------------------------------------------------------
 # Detect architecture
-# ------------------------------------------------------------
 
 ARCH="$(dpkg --print-architecture)"
 
@@ -71,10 +55,7 @@ fi
 echo "Download manifest:"
 cat "$DOWNLOAD_LIST"
 
-
-# ------------------------------------------------------------
 # Download Kubernetes components
-# ------------------------------------------------------------
 
 log "Downloading Kubernetes binaries"
 
@@ -92,10 +73,7 @@ log "Downloaded files"
 
 ls -lh downloads
 
-
-# ------------------------------------------------------------
 # Create binary directories
-# ------------------------------------------------------------
 
 log "Creating binary directories"
 
@@ -105,10 +83,7 @@ mkdir -p \
   downloads/controller \
   downloads/worker
 
-
-# ------------------------------------------------------------
 # Extract CRI tools
-# ------------------------------------------------------------
 
 log "Extracting crictl"
 
@@ -116,10 +91,7 @@ tar \
   -xvf "downloads/crictl-v1.32.0-linux-${ARCH}.tar.gz" \
   -C downloads/worker/
 
-
-# ------------------------------------------------------------
 # Extract containerd
-# ------------------------------------------------------------
 
 log "Extracting containerd"
 
@@ -128,10 +100,7 @@ tar \
   --strip-components=1 \
   -C downloads/worker/
 
-
-# ------------------------------------------------------------
 # Extract CNI plugins
-# ------------------------------------------------------------
 
 log "Extracting CNI plugins"
 
@@ -139,10 +108,7 @@ tar \
   -xvf "downloads/cni-plugins-linux-${ARCH}-v1.6.2.tgz" \
   -C downloads/cni-plugins/
 
-
-# ------------------------------------------------------------
 # Extract etcd
-# ------------------------------------------------------------
 
 log "Extracting etcd"
 
@@ -156,10 +122,7 @@ tar \
   "${ETCD_DIR}/etcd" \
   "${ETCD_DIR}/etcdctl"
 
-
-# ------------------------------------------------------------
 # Organize binaries
-# ------------------------------------------------------------
 
 log "Organizing Kubernetes binaries"
 
@@ -184,10 +147,7 @@ mv \
   "downloads/runc.${ARCH}" \
   downloads/worker/runc
 
-
-# ------------------------------------------------------------
 # Remove archives
-# ------------------------------------------------------------
 
 log "Removing downloaded archives"
 
@@ -197,10 +157,7 @@ find downloads \
   \( -name "*.gz" -o -name "*.tgz" \) \
   -delete
 
-
-# ------------------------------------------------------------
 # Set executable permissions
-# ------------------------------------------------------------
 
 log "Making binaries executable"
 
@@ -209,10 +166,7 @@ chmod +x downloads/cni-plugins/*
 chmod +x downloads/controller/*
 chmod +x downloads/worker/*
 
-
-# ------------------------------------------------------------
 # Install kubectl
-# ------------------------------------------------------------
 
 log "Installing kubectl"
 
@@ -220,19 +174,13 @@ cp downloads/client/kubectl /usr/local/bin/kubectl
 
 chmod +x /usr/local/bin/kubectl
 
-
-# ------------------------------------------------------------
 # Verify kubectl
-# ------------------------------------------------------------
 
 log "Verifying kubectl"
 
 kubectl version --client
 
-
-# ------------------------------------------------------------
 # Final verification
-# ------------------------------------------------------------
 
 log "Jumpbox setup completed"
 
